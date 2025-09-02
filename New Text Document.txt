@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Absensi Lengkap</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap');
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f3f4f6;
+            color: #1f2937;
+        }
+        .container {
+            max-width: 900px;
+            margin: auto;
+            padding: 1rem;
+        }
+        .loading-overlay, .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            transition: opacity 0.3s ease-in-out;
+        }
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3b82f6;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .card {
+            background-color: white;
+            padding: 1.5rem;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .name-card {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            background-color: #f3f4f6;
+            transition: background-color 0.2s ease-in-out;
+            min-width: 150px;
+        }
+        .status-buttons {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 0.5rem;
+        }
+        .status-button {
+            width: 2rem;
+            height: 2rem;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            color: #4b5563;
+            background-color: #e5e7eb;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+        .status-button:hover {
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+        .status-button.selected {
+            color: white;
+            transform: scale(1.05);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .status-button.status-H.selected { background-color: #16a34a; }
+        .status-button.status-I.selected { background-color: #f59e0b; }
+        .status-button.status-S.selected { background-color: #ef4444; }
+        .status-button.status-A.selected { background-color: #4b5563; }
+        
+        .tab-menu button {
+            padding: 0.75rem 1.5rem;
+            border-radius: 0.75rem;
+            font-weight: 600;
+            color: #4b5563;
+            background-color: #e5e7eb;
+            transition: all 0.2s;
+        }
+        .tab-menu button.active {
+            background-color: #3b82f6;
+            color: white;
+        }
+    </style>
+    <!-- Firebase Libraries -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, onSnapshot, setDoc, collection, getDocs, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Variabel global disediakan oleh lingkungan Canvas
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        const firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+        let db;
+        let auth;
+        let userId;
+        
+        // Data menu dan nama
+        const menuData = {
+            'Halaqoh': {
+                'Halaqoh Pagi': ["Ust Fahri", "Ust Goza", "Ust Imam", "Ust Mujahid", "Ust Rifki", "Ust Sa`ad", "Ust Aqib", "Ust Diktian", "Ust Charis", "Usth Nashifa", "Usth Lutfia"],
+                'Halaqoh Dhuha': ["Ust Fahri", "Ust Goza", "Ust Imam", "Ust Mujahid", "Ust Rifki", "Ust Sa`ad", "Ust Aqib", "Ust Diktian", "Ust Charis", "Usth Nashifa", "Usth Lutfia"],
+                'Halaqoh Sore': ["Ust Fahri", "Ust Goza", "Ust Imam", "Ust Mujahid", "Ust Rifki", "Ust Sa`ad", "Ust Aqib", "Ust Diktian", "Ust Charis", "Usth Nashifa", "Usth Lutfia"],
+                'Halaqoh Malam': ["Ust Fahri", "Ust Goza", "Ust Imam", "Ust Mujahid", "Ust Rifki", "Ust Sa`ad", "Ust Aqib", "Ust Diktian", "Ust Charis", "Usth Nashifa", "Usth Lutfia"],
+            },
+            'Keilmuan': {
+                'Pel. Bahasa': ["Akh. Zidna", "Ust Mujahid", "Ust Jundu", "Ust Fathan", "Akh. Javier", "Ust Charis", "Usth Nashifa", "Ust Adriyansyah"],
+                'Pel. Siang': ["Ust Mujahid", "Ust Fahri", "Ust Fathan", "Ust Faizun", "Ust Rifki", "Ust Imam", "Ust Diktian", "Ust Utbah", "Ust Charis", "Ust Adriyansyah", "Ust Faruqi", "Akh. Javier"],
+                'Kajian': ["Ust Fahri", "Ust Fathan", "Ust Utbah", "Ust Adriyansyah", "Ust Jundu", "Ust Imam", "Ust Faruqi", "Ust Sa`ad", "Akh. Javier", "Ust Charis", "Ust Aqib", "Ust Faizun", "Usth Lutfia", "Ust Aziz", "Ust Diktian"],
+            },
+            'Rekap Absensi': {
+                'Halaqoh': {},
+                'Keilmuan': {}
+            }
+        };
+
+        const recapNames = {};
+
+        // Helper untuk membangun daftar nama unik per kategori
+        const buildRecapNames = () => {
+            const halaqohNames = new Set();
+            for (const session in menuData['Halaqoh']) {
+                menuData['Halaqoh'][session].forEach(name => halaqohNames.add(name));
+            }
+            recapNames['Halaqoh'] = Array.from(halaqohNames).sort();
+
+            const keilmuanNames = new Set();
+            for (const session in menuData['Keilmuan']) {
+                menuData['Keilmuan'][session].forEach(name => keilmuanNames.add(name));
+            }
+            recapNames['Keilmuan'] = Array.from(keilmuanNames).sort();
+        };
+        
+        buildRecapNames();
+        
+        let attendanceData = {};
+        let currentMenu = 'Halaqoh';
+        let currentSession = 'Halaqoh Pagi';
+        let currentDate = new Date();
+        const statuses = ["H", "I", "S", "A"];
+
+        // --- Helper Function ---
+        const formatDate = (date) => {
+            return date.toISOString().slice(0, 10);
+        };
+        
+        const formatDisplayDate = (date) => {
+            const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+            return date.toLocaleDateString('id-ID', options);
+        };
+
+        const getAttendanceDocRef = (date) => {
+            const dateStr = formatDate(date);
+            return doc(db, `artifacts/${appId}/users/${userId}/absensi_data`, dateStr);
+        };
+
+        // --- Inisialisasi Firebase ---
+        const initializeFirebase = async () => {
+            try {
+                if (Object.keys(firebaseConfig).length === 0) {
+                    console.error("Firebase config is empty. Please ensure it's provided.");
+                    document.getElementById('loading').textContent = 'Error: Firebase config missing.';
+                    return;
+                }
+                const app = initializeApp(firebaseConfig, "AbsensiApp");
+                db = getFirestore(app);
+                auth = getAuth(app);
+
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        const userIdEl = document.getElementById('user-id');
+                        if(userIdEl) {
+                           userIdEl.textContent = `ID Pengguna: ${userId}`;
+                        }
+                        setupRealtimeListener(currentDate);
+                        renderMenu();
+                    } else {
+                        console.log("No user signed in.");
+                        const loadingEl = document.getElementById('loading');
+                        if (loadingEl) {
+                           loadingEl.textContent = 'Error: Could not authenticate user.';
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Error initializing Firebase:", error);
+            }
+        };
+
+        // --- Listener Real-time Firestore ---
+        const setupRealtimeListener = (date) => {
+            if (currentMenu === 'Rekap Absensi') return;
+
+            const docRef = getAttendanceDocRef(date);
+            const todayStr = formatDate(new Date());
+            const displayDateStr = formatDate(date);
+            
+            const resetButton = document.getElementById('reset-button');
+            if (resetButton) {
+              if (displayDateStr === todayStr && currentSession !== 'Rekap Absensi') {
+                  resetButton.classList.remove('hidden');
+              } else {
+                  resetButton.classList.add('hidden');
+              }
+            }
+            
+            onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    attendanceData = docSnap.data().sessions || {};
+                } else {
+                    attendanceData = {};
+                }
+                renderApp();
+                const loadingOverlay = document.getElementById('loading-overlay');
+                if (loadingOverlay) {
+                    loadingOverlay.classList.add('hidden');
+                }
+            }, (error) => {
+                console.error("Error getting real-time data:", error);
+                const loadingOverlay = document.getElementById('loading-overlay');
+                if (loadingOverlay) {
+                    loadingOverlay.classList.add('hidden');
+                }
+            });
+        };
+
+        // --- Simpan Data ke Firestore ---
+        const saveAttendance = async (session, name, status) => {
+            const docRef = getAttendanceDocRef(currentDate);
+            
+            if (!attendanceData[session]) {
+                attendanceData[session] = {};
+            }
+            attendanceData[session][name] = status;
+
+            try {
+                await setDoc(docRef, { sessions: attendanceData }, { merge: true });
+                const messageEl = document.getElementById('message');
+                if (messageEl) {
+                    messageEl.textContent = 'Perubahan disimpan.';
+                    setTimeout(() => {
+                        messageEl.textContent = '';
+                    }, 2000);
+                }
+            } catch (error) {
+                console.error("Error saving document:", error);
+                const messageEl = document.getElementById('message');
+                if (messageEl) {
+                    messageEl.textContent = 'Gagal menyimpan perubahan.';
+                }
+            }
+        };
+        
+        // --- Navigasi Tanggal ---
+        const navigateDate = (days) => {
+            currentDate.setDate(currentDate.getDate() + days);
+            const currentDateEl = document.getElementById('current-date');
+            if (currentDateEl) {
+                currentDateEl.textContent = formatDisplayDate(currentDate);
+            }
+            setupRealtimeListener(currentDate);
+        };
+        
+        // --- Reset Absensi Hari Ini ---
+        const resetTodayAttendance = async () => {
+            const resetConfirmationModal = document.getElementById('reset-confirmation-modal');
+            if (resetConfirmationModal) {
+                resetConfirmationModal.classList.remove('hidden');
+            }
+        };
+        
+        const confirmReset = async () => {
+            hideResetConfirmationModal();
+            const docRef = getAttendanceDocRef(new Date());
+            await setDoc(docRef, { sessions: {} });
+            const messageEl = document.getElementById('message');
+            if (messageEl) {
+                messageEl.textContent = 'Absensi hari ini telah direset.';
+                setTimeout(() => {
+                    messageEl.textContent = '';
+                }, 2000);
+            }
+        };
+        
+        const hideResetConfirmationModal = () => {
+            const resetConfirmationModal = document.getElementById('reset-confirmation-modal');
+            if (resetConfirmationModal) {
+                resetConfirmationModal.classList.add('hidden');
+            }
+        };
+
+        // --- Render UI Rekap ---
+        const renderRecap = async (recapType) => {
+            const appContainer = document.getElementById('app-container');
+            if (!appContainer) return;
+            appContainer.innerHTML = '';
+            
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) {
+                loadingOverlay.classList.remove('hidden');
+            }
+            const loadingText = document.getElementById('loading');
+            if (loadingText) {
+                loadingText.textContent = `Memuat rekap ${recapType}...`;
+            }
+
+            const names = recapNames[recapType];
+            
+            const recapData = {};
+            names.forEach(name => {
+                recapData[name] = { H: 0, I: 0, S: 0, A: 0 };
+            });
+
+            const colRef = collection(db, `artifacts/${appId}/users/${userId}/absensi_data`);
+            const q = query(colRef);
+            
+            try {
+                const querySnapshot = await getDocs(q);
+                querySnapshot.forEach(doc => {
+                    const daySessions = doc.data().sessions;
+                    for (const sessionName in daySessions) {
+                        // Cek apakah sesi ini termasuk dalam kategori rekap yang sedang dilihat
+                        if (recapType === 'Halaqoh' && menuData.Halaqoh[sessionName] || recapType === 'Keilmuan' && menuData.Keilmuan[sessionName]) {
+                            const sessionData = daySessions[sessionName];
+                            for (const name in sessionData) {
+                                const status = sessionData[name];
+                                if (recapData[name] && recapData[name][status] !== undefined) {
+                                    recapData[name][status]++;
+                                }
+                            }
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Error fetching recap data:", error);
+                appContainer.innerHTML = '<p class="text-red-500 font-semibold text-center">Gagal memuat rekap data.</p>';
+            } finally {
+                const loadingOverlay = document.getElementById('loading-overlay');
+                if (loadingOverlay) {
+                    loadingOverlay.classList.add('hidden');
+                }
+            }
+
+            let tableHTML = `
+                <div class="card overflow-x-auto">
+                    <h2 class="text-xl font-bold mb-4 text-center text-blue-600">Rekap ${recapType}</h2>
+                    <table class="w-full text-left table-auto">
+                        <thead>
+                            <tr class="bg-gray-200 text-gray-700">
+                                <th class="p-2 border-b-2">Nama</th>
+                                <th class="p-2 border-b-2 text-center">Hadir (H)</th>
+                                <th class="p-2 border-b-2 text-center">Izin (I)</th>
+                                <th class="p-2 border-b-2 text-center">Sakit (S)</th>
+                                <th class="p-2 border-b-2 text-center">Alpa (A)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${names.map(name => `
+                                <tr class="border-b hover:bg-gray-50">
+                                    <td class="p-2 font-medium">${name}</td>
+                                    <td class="p-2 text-center text-green-600 font-semibold">${recapData[name].H}</td>
+                                    <td class="p-2 text-center text-yellow-600 font-semibold">${recapData[name].I}</td>
+                                    <td class="p-2 text-center text-red-600 font-semibold">${recapData[name].S}</td>
+                                    <td class="p-2 text-center text-gray-600 font-semibold">${recapData[name].A}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+                </div>
+                <div class="mt-6 text-center">
+                    <button id="export-recap-button" class="px-6 py-2 rounded-lg bg-blue-500 text-white font-semibold hover:bg-blue-600 transition">
+                        Salin Data Rekap
+                    </button>
+                </div>
+            `;
+            appContainer.innerHTML = tableHTML;
+            
+            document.getElementById('export-recap-button').addEventListener('click', () => {
+                exportRecapToCSV(recapType, names, recapData);
+            });
+        };
+
+        const exportRecapToCSV = (recapType, names, recapData) => {
+            let csvContent = "Nama,Hadir,Izin,Sakit,Alpa\n";
+            names.forEach(name => {
+                csvContent += `"${name}",${recapData[name].H},${recapData[name].I},${recapData[name].S},${recapData[name].A}\n`;
+            });
+            navigator.clipboard.writeText(csvContent)
+                .then(() => {
+                    const messageEl = document.getElementById('message');
+                    messageEl.textContent = 'Data rekap berhasil disalin ke clipboard!';
+                    setTimeout(() => messageEl.textContent = '', 3000);
+                })
+                .catch(err => {
+                    console.error('Gagal menyalin data rekap:', err);
+                    const messageEl = document.getElementById('message');
+                    messageEl.textContent = 'Gagal menyalin data rekap.';
+                });
+        };
+
+        // --- Render UI Menu Utama ---
+        const renderMenu = () => {
+            const menuContainer = document.getElementById('menu-container');
+            if (!menuContainer) return;
+
+            const mainMenus = Object.keys(menuData);
+            menuContainer.innerHTML = mainMenus.map(menu => `
+                <button id="btn-menu-${menu.replace(/\s/g, '-')}" class="tab-button">${menu}</button>
+            `).join('');
+
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.addEventListener('click', (event) => {
+                    currentMenu = event.target.textContent;
+                    // Reset sesi ke default atau rekap
+                    if (currentMenu === 'Rekap Absensi') {
+                        currentSession = Object.keys(menuData[currentMenu])[0]; // Default ke rekap halaqoh
+                    } else {
+                        currentSession = Object.keys(menuData[currentMenu])[0];
+                    }
+                    renderApp();
+                });
+            });
+            
+            // Set menu awal
+            document.getElementById(`btn-menu-${currentMenu.replace(/\s/g, '-')}`).classList.add('active');
+            renderSubMenu();
+        };
+
+        // --- Render UI Submenu ---
+        const renderSubMenu = () => {
+            const subMenuContainer = document.getElementById('submenu-container');
+            if (!subMenuContainer) return;
+            
+            const sessions = Object.keys(menuData[currentMenu]);
+            subMenuContainer.innerHTML = sessions.map(session => `
+                <button id="btn-session-${session.replace(/\s/g, '-')}" class="tab-button">${session}</button>
+            `).join('');
+
+            document.querySelectorAll('#submenu-container .tab-button').forEach(button => {
+                button.addEventListener('click', (event) => {
+                    const sessionName = event.target.textContent;
+                    currentSession = sessionName;
+                    renderApp();
+                });
+            });
+            
+            if (currentSession) {
+                document.getElementById(`btn-session-${currentSession.replace(/\s/g, '-')}`).classList.add('active');
+            }
+        };
+
+        // --- Render UI Absensi atau Rekap ---
+        const renderApp = () => {
+            // Atur tampilan tombol menu utama dan submenu
+            document.querySelectorAll('#menu-container .tab-button').forEach(btn => {
+                if (btn.textContent === currentMenu) {
+                    btn.classList.add('active');
+                } else {
+                    btn.classList.remove('active');
+                }
+            });
+            renderSubMenu();
+            
+            if (currentMenu === 'Rekap Absensi') {
+                document.getElementById('date-navigation').classList.add('hidden');
+                document.getElementById('reset-button').classList.add('hidden');
+                renderRecap(currentSession);
+            } else {
+                document.getElementById('date-navigation').classList.remove('hidden');
+                const todayStr = formatDate(new Date());
+                if (formatDate(currentDate) === todayStr) {
+                    document.getElementById('reset-button').classList.remove('hidden');
+                } else {
+                    document.getElementById('reset-button').classList.add('hidden');
+                }
+                
+                const appContainer = document.getElementById('app-container');
+                if (!appContainer) return;
+                appContainer.innerHTML = '';
+                const sessionDiv = document.createElement('div');
+                sessionDiv.className = 'card mb-6';
+                const names = menuData[currentMenu][currentSession];
+                sessionDiv.innerHTML = `
+                    <h2 class="text-xl font-bold mb-4 text-center text-blue-600">${currentSession}</h2>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        ${names.map((name, index) => {
+                            const currentStatus = attendanceData[currentSession] ? attendanceData[currentSession][name] : 'A';
+                            const paddedIndex = (index + 1).toString().padStart(2, '0');
+                            return `
+                                <div class="name-card">
+                                    <span class="text-gray-800 font-medium">${paddedIndex}. ${name}</span>
+                                    <div class="status-buttons" data-name="${name}" data-session="${currentSession}">
+                                        ${statuses.map(status => {
+                                            const isSelected = currentStatus === status;
+                                            const selectedClass = isSelected ? 'selected' : '';
+                                            return `
+                                                <button class="status-button status-${status} ${selectedClass}" data-status="${status}">
+                                                    ${status}
+                                                </button>
+                                            `;
+                                        }).join('')}
+                                    </div>
+                                </div>
+                            `;
+                        }).join('')}
+                    </div>
+                `;
+                appContainer.appendChild(sessionDiv);
+                
+                document.querySelectorAll('.status-button').forEach(button => {
+                    button.addEventListener('click', (event) => {
+                        const status = event.target.dataset.status;
+                        const statusButtonsContainer = event.target.closest('.status-buttons');
+                        const session = statusButtonsContainer.dataset.session;
+                        const name = statusButtonsContainer.dataset.name;
+
+                        statusButtonsContainer.querySelectorAll('.status-button').forEach(btn => {
+                            btn.classList.remove('selected');
+                        });
+                        event.target.classList.add('selected');
+                        
+                        saveAttendance(session, name, status);
+                    });
+                });
+            }
+        };
+
+        // --- Mulai Aplikasi ---
+        window.onload = () => {
+            initializeFirebase();
+            const prevDayBtn = document.getElementById('prev-day-btn');
+            if (prevDayBtn) {
+                prevDayBtn.addEventListener('click', () => navigateDate(-1));
+            }
+            
+            const nextDayBtn = document.getElementById('next-day-btn');
+            if (nextDayBtn) {
+                nextDayBtn.addEventListener('click', () => navigateDate(1));
+            }
+            
+            const resetButton = document.getElementById('reset-button');
+            if (resetButton) {
+                resetButton.addEventListener('click', resetTodayAttendance);
+            }
+            
+            const confirmResetBtn = document.getElementById('confirm-reset-btn');
+            if (confirmResetBtn) {
+                confirmResetBtn.addEventListener('click', confirmReset);
+            }
+            
+            const cancelResetBtn = document.getElementById('cancel-reset-btn');
+            if (cancelResetBtn) {
+                cancelResetBtn.addEventListener('click', hideResetConfirmationModal);
+            }
+
+            const currentDateEl = document.getElementById('current-date');
+            if (currentDateEl) {
+                currentDateEl.textContent = formatDisplayDate(currentDate);
+            }
+        };
+    </script>
+</head>
+<body class="bg-gray-100 p-4">
+    <div id="loading-overlay" class="loading-overlay">
+        <div class="flex flex-col items-center">
+            <div class="spinner"></div>
+            <p class="mt-4 text-gray-700 font-semibold" id="loading">Memuat...</p>
+        </div>
+    </div>
+    
+    <div class="container">
+        <header class="text-center mb-6">
+            <h1 class="text-3xl font-extrabold text-blue-700 mb-2">Aplikasi Absensi</h1>
+            <p class="text-sm text-gray-600 mb-4" id="user-id">ID Pengguna: Memuat...</p>
+            
+            <div id="date-navigation" class="flex items-center justify-center mb-4 space-x-2">
+                <button id="prev-day-btn" class="p-2 bg-gray-200 rounded-full hover:bg-gray-300 transition">
+                    <svg class="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+                </button>
+                <p class="text-lg text-gray-800 font-semibold" id="current-date"></p>
+                <button id="next-day-btn" class="p-2 bg-gray-200 rounded-full hover:bg-gray-300 transition">
+                    <svg class="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+                </button>
+            </div>
+            
+            <button id="reset-button" class="hidden mt-2 px-4 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 transition">
+                Reset Hari Ini
+            </button>
+            <div id="message" class="mt-2 text-green-600 font-medium"></div>
+        </header>
+        
+        <div class="flex flex-wrap justify-center gap-2 mb-2 tab-menu" id="menu-container">
+            <!-- Tombol menu utama akan dirender di sini -->
+        </div>
+        <div class="flex flex-wrap justify-center gap-2 mb-6 tab-menu" id="submenu-container">
+            <!-- Tombol submenu akan dirender di sini -->
+        </div>
+        
+        <div id="app-container">
+            <!-- Daftar absensi akan dirender di sini -->
+        </div>
+
+    </div>
+    
+    <div id="reset-confirmation-modal" class="modal-overlay hidden">
+        <div class="bg-white rounded-lg p-6 shadow-xl w-full max-w-sm text-center">
+            <h3 class="text-xl font-bold mb-4">Konfirmasi Reset</h3>
+            <p class="text-gray-600 mb-6">Apakah Anda yakin ingin menghapus semua data absensi hari ini? Ini tidak bisa dibatalkan.</p>
+            <div class="flex justify-center gap-4">
+                <button id="confirm-reset-btn" class="px-4 py-2 rounded-lg bg-red-500 text-white font-semibold hover:bg-red-600 transition">
+                    Ya, Hapus
+                </button>
+                <button id="cancel-reset-btn" class="px-4 py-2 rounded-lg bg-gray-300 text-gray-800 font-semibold hover:bg-gray-400 transition">
+                    Batal
+                </button>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
